@@ -32,3 +32,26 @@ The repository targets .NET 8. Check `global.json` and the API/test project file
 6. Re-run the build/tests and check GitHub Actions after pushing.
 
 Never paste real JWTs, passwords, database connection secrets or personal participant records into public issues.
+
+## Windows PowerShell JWT signing-key startup fix (verified locally, October 2026)
+
+**Symptom:** `dotnet run` exits at `Program.cs` with `JWT signing key must contain at least 32 bytes. Configure Jwt:Key using user-secrets or Jwt__Key.`
+
+This indicates missing or insufficient JWT signing-key configuration, not necessarily a SQL Server problem. From `src/RaceDay.Api`, initialize user secrets if needed, then generate a **new random key** using a PowerShell-compatible API:
+
+```powershell
+dotnet user-secrets init
+$bytes = New-Object byte[] 48
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+$key = [Convert]::ToBase64String($bytes)
+dotnet user-secrets set "Jwt:Key" "$key"
+dotnet user-secrets set "Jwt:Issuer" "RaceDay.Api"
+dotnet user-secrets set "Jwt:Audience" "RaceDay.Client"
+dotnet run
+```
+
+If `dotnet user-secrets init` says a `UserSecretsId` already exists, that is normal: continue with key generation. In some Windows PowerShell/.NET environments, `[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)` is unavailable. Use `RandomNumberGenerator.Create().GetBytes($bytes)` as shown instead. **Do not continue after a failed key-generation command**: an unfilled byte array may encode to a string of repeated `A` characters, which is not a secure key.
+
+The generated key stays in the local .NET User Secrets store and is not committed to GitHub. Do not paste the key into `appsettings.json`, screenshots, commits, or issues. Generate a separate secret for each deployed environment. When the API starts, use the URL printed by `dotnet run` and open `/swagger` in Development. If the next error concerns SQL Server, diagnose it separately.
